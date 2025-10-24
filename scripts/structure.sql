@@ -15,10 +15,14 @@ CREATE TABLE public.booking (
   phone character varying NOT NULL,
   time_slot bigint NOT NULL,
   barber bigint NOT NULL,
-  observation smallint,
+  service_id bigint NOT NULL,
+  payment_status character varying NOT NULL DEFAULT 'NPAGO',
+  observation text,
   CONSTRAINT booking_pkey PRIMARY KEY (id),
   CONSTRAINT booking_barber_fkey FOREIGN KEY (barber) REFERENCES public.barbers(id),
-  CONSTRAINT booking_time_slot_fkey FOREIGN KEY (time_slot) REFERENCES public.timeSlots(id)
+  CONSTRAINT booking_time_slot_fkey FOREIGN KEY (time_slot) REFERENCES public.timeSlots(id),
+  CONSTRAINT booking_service_id_fkey FOREIGN KEY (service_id) REFERENCES public.services(id),
+  CONSTRAINT booking_payment_status_check CHECK (payment_status IN ('PAGO', 'NPAGO', 'METPAGO'))
 );
 CREATE TABLE public.dates (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,

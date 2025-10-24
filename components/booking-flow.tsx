@@ -66,6 +66,7 @@ export default function BookingFlow({ services, dates, barbers }: BookingFlowPro
   const [customerName, setCustomerName] = useState("")
   const [customerPhone, setCustomerPhone] = useState("")
   const [paymentOption, setPaymentOption] = useState<"50" | "100" | "">("")
+  const [paymentStatus, setPaymentStatus] = useState<"PAGO" | "NPAGO" | "METPAGO">("NPAGO")
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
 
@@ -307,12 +308,23 @@ export default function BookingFlow({ services, dates, barbers }: BookingFlowPro
         timeSlotId = newSlot.id
       }
 
+      // Determinar o status de pagamento baseado na opção selecionada
+      let finalPaymentStatus: "PAGO" | "NPAGO" | "METPAGO" = "NPAGO"
+      if (paymentOption === "100") {
+        finalPaymentStatus = "PAGO"
+      } else if (paymentOption === "50") {
+        finalPaymentStatus = "METPAGO"
+      }
+      // Se paymentOption estiver vazio, mantém "NPAGO" como padrão
+
       // Criar o booking
       const { error } = await supabase.from("booking").insert({
         name: customerName,
         phone: customerPhone,
         time_slot: timeSlotId,
         barber: selectedBarber.id,
+        service_id: selectedService.id,
+        payment_status: finalPaymentStatus,
         observation: notes || null,
       })
 
@@ -658,8 +670,7 @@ export default function BookingFlow({ services, dates, barbers }: BookingFlowPro
                 </CardContent>
               </Card>
 
-              {/* Seção de pagamento comentada para fins de teste */}
-              {/* 
+              {/* Seção de pagamento */}
               <Card className="bg-gray-900 border-gray-800">
                 <CardHeader>
                   <CardTitle className="text-2xl text-white flex items-center gap-2">
@@ -668,7 +679,21 @@ export default function BookingFlow({ services, dates, barbers }: BookingFlowPro
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-3 gap-4">
+                    <Card
+                      className={`cursor-pointer transition-all duration-300 ${
+                        paymentOption === ""
+                          ? "bg-[#C1FE72] text-black border-[#C1FE72]"
+                          : "bg-gray-800 border-gray-700 hover:border-[#C1FE72] text-white"
+                      }`}
+                      onClick={() => setPaymentOption("")}
+                    >
+                      <CardContent className="p-4 text-center">
+                        <div className="text-lg font-bold mb-2">Não Pago</div>
+                        <div className="text-sm">R$ 0,00</div>
+                        <div className="text-xs mt-1 opacity-75">Pagamento no local</div>
+                      </CardContent>
+                    </Card>
                     <Card
                       className={`cursor-pointer transition-all duration-300 ${
                         paymentOption === "50"
@@ -702,17 +727,16 @@ export default function BookingFlow({ services, dates, barbers }: BookingFlowPro
                   </div>
                 </CardContent>
               </Card>
-              */}
 
-              {/* Aviso para fins de teste */}
-              <Card className="bg-yellow-900 border-yellow-600">
+              {/* Informação sobre pagamento */}
+              <Card className="bg-blue-900 border-blue-600">
                 <CardContent className="p-4">
-                  <div className="flex items-center gap-2 text-yellow-200">
+                  <div className="flex items-center gap-2 text-blue-200">
                     <Check className="h-5 w-5" />
-                    <span className="font-semibold">Modo de Teste</span>
+                    <span className="font-semibold">Status de Pagamento</span>
                   </div>
-                  <p className="text-yellow-100 text-sm mt-2">
-                    O pagamento foi desabilitado para fins de teste. O agendamento será confirmado diretamente.
+                  <p className="text-blue-100 text-sm mt-2">
+                    Selecione uma opção de pagamento acima. O status será registrado no agendamento.
                   </p>
                 </CardContent>
               </Card>
