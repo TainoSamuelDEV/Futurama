@@ -28,7 +28,9 @@ interface Booking {
   phone: string
   time_slot: string
   barber: string
-  observation: number | null
+  service_id?: number
+  payment_status?: string
+  observation?: string | null
   created_at?: string
   timeSlots?: {
     slot_start: number
@@ -47,11 +49,10 @@ interface AdminDashboardProps {
 }
 
 const STATUS_CONFIG = {
-  pending: { label: "Pendente", color: "bg-yellow-500", icon: AlertCircle },
-  confirmed: { label: "Confirmado", color: "bg-green-500", icon: CheckCircle },
-  cancelled: { label: "Cancelado", color: "bg-red-500", icon: XCircle },
-  completed: { label: "Concluído", color: "bg-blue-500", icon: CheckCircle },
-}
+  NPAGO: { label: "Não Pago", color: "bg-red-500", icon: XCircle },
+  METPAGO: { label: "Meio Pago", color: "bg-yellow-500", icon: AlertCircle },
+  PAGO: { label: "Pago", color: "bg-green-500", icon: CheckCircle },
+} as const
 
 export default function AdminDashboard({ bookings }: AdminDashboardProps) {
   const [filteredBookings, setFilteredBookings] = useState(bookings)
@@ -64,15 +65,15 @@ export default function AdminDashboard({ bookings }: AdminDashboardProps) {
     let filtered = bookings
 
     if (status !== "all") {
-      filtered = filtered.filter((booking) => booking.status === status)
+      filtered = filtered.filter((booking) => booking.payment_status === status)
     }
 
     if (search) {
       filtered = filtered.filter(
         (booking) =>
-          booking.services.name.toLowerCase().includes(search.toLowerCase()) ||
-          booking.profiles.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-          booking.profiles.phone?.includes(search),
+          booking.name.toLowerCase().includes(search.toLowerCase()) ||
+          booking.phone?.includes(search) ||
+          booking.barber.toLowerCase().includes(search.toLowerCase()),
       )
     }
 
@@ -94,26 +95,26 @@ export default function AdminDashboard({ bookings }: AdminDashboardProps) {
     const supabase = createClient()
 
     try {
-      const { error } = await supabase.from("bookings").update({ status: newStatus }).eq("id", bookingId)
+      const { error } = await supabase.from("booking").update({ payment_status: newStatus }).eq("id", bookingId)
 
       if (error) throw error
 
       // Update local state
       const updatedBookings = bookings.map((booking) =>
-        booking.id === bookingId ? { ...booking, status: newStatus as any } : booking,
+        booking.id === bookingId ? { ...booking, payment_status: newStatus } : booking,
       )
 
       // Re-filter with updated data
       let filtered = updatedBookings
       if (statusFilter !== "all") {
-        filtered = filtered.filter((booking) => booking.status === statusFilter)
+        filtered = filtered.filter((booking) => booking.payment_status === statusFilter)
       }
       if (searchTerm) {
         filtered = filtered.filter(
           (booking) =>
-            booking.services.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            booking.profiles.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            booking.profiles.phone?.includes(searchTerm),
+            booking.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            booking.phone?.includes(searchTerm) ||
+            booking.barber.toLowerCase().includes(searchTerm.toLowerCase()),
         )
       }
       setFilteredBookings(filtered)
@@ -128,10 +129,9 @@ export default function AdminDashboard({ bookings }: AdminDashboardProps) {
   const getStatusCounts = () => {
     return {
       total: bookings.length,
-      pending: bookings.filter((b) => b.status === "pending").length,
-      confirmed: bookings.filter((b) => b.status === "confirmed").length,
-      cancelled: bookings.filter((b) => b.status === "cancelled").length,
-      completed: bookings.filter((b) => b.status === "completed").length,
+      NPAGO: bookings.filter((b) => b.payment_status === "NPAGO").length,
+      METPAGO: bookings.filter((b) => b.payment_status === "METPAGO").length,
+      PAGO: bookings.filter((b) => b.payment_status === "PAGO").length,
     }
   }
 
@@ -163,7 +163,7 @@ export default function AdminDashboard({ bookings }: AdminDashboardProps) {
           </div>
 
           {/* Stats Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             <Card className="bg-gray-900 border-gray-800">
               <CardContent className="p-4 text-center">
                 <div className="text-2xl font-bold text-[#C1FE72]">{statusCounts.total}</div>
@@ -172,26 +172,20 @@ export default function AdminDashboard({ bookings }: AdminDashboardProps) {
             </Card>
             <Card className="bg-gray-900 border-gray-800">
               <CardContent className="p-4 text-center">
-                <div className="text-2xl font-bold text-yellow-500">{statusCounts.pending}</div>
-                <div className="text-sm text-gray-400">Pendentes</div>
+                <div className="text-2xl font-bold text-red-500">{statusCounts.NPAGO}</div>
+                <div className="text-sm text-gray-400">Não Pago</div>
               </CardContent>
             </Card>
             <Card className="bg-gray-900 border-gray-800">
               <CardContent className="p-4 text-center">
-                <div className="text-2xl font-bold text-green-500">{statusCounts.confirmed}</div>
-                <div className="text-sm text-gray-400">Confirmados</div>
+                <div className="text-2xl font-bold text-yellow-500">{statusCounts.METPAGO}</div>
+                <div className="text-sm text-gray-400">Meio Pago</div>
               </CardContent>
             </Card>
             <Card className="bg-gray-900 border-gray-800">
               <CardContent className="p-4 text-center">
-                <div className="text-2xl font-bold text-red-500">{statusCounts.cancelled}</div>
-                <div className="text-sm text-gray-400">Cancelados</div>
-              </CardContent>
-            </Card>
-            <Card className="bg-gray-900 border-gray-800">
-              <CardContent className="p-4 text-center">
-                <div className="text-2xl font-bold text-blue-500">{statusCounts.completed}</div>
-                <div className="text-sm text-gray-400">Concluídos</div>
+                <div className="text-2xl font-bold text-green-500">{statusCounts.PAGO}</div>
+                <div className="text-sm text-gray-400">Pago</div>
               </CardContent>
             </Card>
           </div>
@@ -222,10 +216,9 @@ export default function AdminDashboard({ bookings }: AdminDashboardProps) {
                 </SelectTrigger>
                 <SelectContent className="bg-gray-800 border-gray-700">
                   <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="pending">Pendentes</SelectItem>
-                  <SelectItem value="confirmed">Confirmados</SelectItem>
-                  <SelectItem value="cancelled">Cancelados</SelectItem>
-                  <SelectItem value="completed">Concluídos</SelectItem>
+                  <SelectItem value="NPAGO">Não Pago</SelectItem>
+                  <SelectItem value="METPAGO">Meio Pago</SelectItem>
+                  <SelectItem value="PAGO">Pago</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -235,108 +228,113 @@ export default function AdminDashboard({ bookings }: AdminDashboardProps) {
           <div className="space-y-4">
             {filteredBookings.length > 0 ? (
               filteredBookings.map((booking) => {
-                const StatusIcon = STATUS_CONFIG[booking.status].icon
+                const statusKey = (booking.payment_status || 'NPAGO') as keyof typeof STATUS_CONFIG
+                const StatusIcon = STATUS_CONFIG[statusKey].icon
                 return (
                   <Card key={booking.id} className="bg-gray-900 border-gray-800">
                     <CardContent className="p-6">
                       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                         <div className="flex-1 grid md:grid-cols-2 lg:grid-cols-4 gap-4">
                           <div>
-                            <Label className="text-gray-400 text-xs">Cliente</Label>
-                            <div className="flex items-center gap-2 mt-1">
-                              <User className="h-4 w-4 text-[#C1FE72]" />
-                              <span className="text-white font-medium">
-                                {booking.profiles.full_name || "Nome não informado"}
-                              </span>
-                            </div>
-                            {booking.profiles.phone && (
+                              <Label className="text-gray-400 text-xs">Cliente</Label>
                               <div className="flex items-center gap-2 mt-1">
-                                <Phone className="h-3 w-3 text-gray-400" />
-                                <span className="text-gray-400 text-sm">{booking.profiles.phone}</span>
+                                <User className="h-4 w-4 text-[#C1FE72]" />
+                                <span className="text-white font-medium">
+                                  {booking.name || "Nome não informado"}
+                                </span>
                               </div>
-                            )}
-                          </div>
+                              {booking.phone && (
+                                <div className="flex items-center gap-2 mt-1">
+                                  <Phone className="h-3 w-3 text-gray-400" />
+                                  <span className="text-gray-400 text-sm">{booking.phone}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            <div>
+                              <Label className="text-gray-400 text-xs">Barbeiro</Label>
+                              <div className="flex items-center gap-2 mt-1">
+                                <Scissors className="h-4 w-4 text-[#C1FE72]" />
+                                <span className="text-white font-medium">{booking.barber}</span>
+                              </div>
+                            </div>
+
+                            <div>
+                              <Label className="text-gray-400 text-xs">Horário</Label>
+                              <div className="flex items-center gap-2 mt-1">
+                                <Clock className="h-4 w-4 text-[#C1FE72]" />
+                                <span className="text-white">
+                                  {booking.time_slot}
+                                </span>
+                              </div>
+                            </div>
 
                           <div>
-                            <Label className="text-gray-400 text-xs">Serviço</Label>
-                            <div className="flex items-center gap-2 mt-1">
-                              <Scissors className="h-4 w-4 text-[#C1FE72]" />
-                              <span className="text-white font-medium">{booking.services.name}</span>
+                              <Label className="text-gray-400 text-xs">Status</Label>
+                              <div className="flex items-center gap-2 mt-1">
+                                <div className={`w-3 h-3 rounded-full ${STATUS_CONFIG[statusKey].color}`}></div>
+                                <span className="text-white font-medium">{STATUS_CONFIG[statusKey].label}</span>
+                              </div>
+                              {booking.observation && <p className="text-gray-400 text-sm mt-1 italic">Obs: {booking.observation}</p>}
                             </div>
-                            <div className="text-[#C1FE72] font-bold text-sm">
-                              R$ {booking.services.price.toFixed(2).replace(".", ",")}
-                            </div>
-                          </div>
-
-                          <div>
-                            <Label className="text-gray-400 text-xs">Data e Hora</Label>
-                            <div className="flex items-center gap-2 mt-1">
-                              <Calendar className="h-4 w-4 text-[#C1FE72]" />
-                              <span className="text-white">
-                                {new Date(booking.booking_date).toLocaleDateString("pt-BR")}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 mt-1">
-                              <Clock className="h-3 w-3 text-gray-400" />
-                              <span className="text-gray-400 text-sm">{booking.booking_time.slice(0, 5)}</span>
-                            </div>
-                          </div>
-
-                          <div>
-                            <Label className="text-gray-400 text-xs">Status</Label>
-                            <div className="flex items-center gap-2 mt-1">
-                              <div className={`w-3 h-3 rounded-full ${STATUS_CONFIG[booking.status].color}`}></div>
-                              <span className="text-white font-medium">{STATUS_CONFIG[booking.status].label}</span>
-                            </div>
-                            {booking.notes && <p className="text-gray-400 text-sm mt-1 italic">"{booking.notes}"</p>}
-                          </div>
                         </div>
 
                         <div className="flex flex-wrap gap-2">
-                          {booking.status === "pending" && (
+                          {booking.payment_status === "NPAGO" && (
                             <>
                               <Button
                                 size="sm"
-                                onClick={() => updateBookingStatus(booking.id, "confirmed")}
+                                onClick={() => updateBookingStatus(booking.id, "METPAGO")}
+                                disabled={isUpdating === booking.id}
+                                className="bg-yellow-600 hover:bg-yellow-700 text-white"
+                              >
+                                <AlertCircle className="h-4 w-4 mr-1" />
+                                Meio Pago
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={() => updateBookingStatus(booking.id, "PAGO")}
                                 disabled={isUpdating === booking.id}
                                 className="bg-green-600 hover:bg-green-700 text-white"
                               >
                                 <CheckCircle className="h-4 w-4 mr-1" />
-                                Confirmar
+                                Pago
+                              </Button>
+                            </>
+                          )}
+                          {booking.payment_status === "METPAGO" && (
+                            <>
+                              <Button
+                                size="sm"
+                                onClick={() => updateBookingStatus(booking.id, "PAGO")}
+                                disabled={isUpdating === booking.id}
+                                className="bg-green-600 hover:bg-green-700 text-white"
+                              >
+                                <CheckCircle className="h-4 w-4 mr-1" />
+                                Completar Pagamento
                               </Button>
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() => updateBookingStatus(booking.id, "cancelled")}
+                                onClick={() => updateBookingStatus(booking.id, "NPAGO")}
                                 disabled={isUpdating === booking.id}
                                 className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
                               >
                                 <XCircle className="h-4 w-4 mr-1" />
-                                Cancelar
+                                Reverter
                               </Button>
                             </>
                           )}
-                          {booking.status === "confirmed" && (
-                            <Button
-                              size="sm"
-                              onClick={() => updateBookingStatus(booking.id, "completed")}
-                              disabled={isUpdating === booking.id}
-                              className="bg-blue-600 hover:bg-blue-700 text-white"
-                            >
-                              <CheckCircle className="h-4 w-4 mr-1" />
-                              Concluir
-                            </Button>
-                          )}
-                          {(booking.status === "cancelled" || booking.status === "completed") && (
+                          {booking.payment_status === "PAGO" && (
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => updateBookingStatus(booking.id, "pending")}
+                              onClick={() => updateBookingStatus(booking.id, "METPAGO")}
                               disabled={isUpdating === booking.id}
-                              className="border-gray-600 text-gray-400 hover:bg-gray-700 hover:text-white"
+                              className="border-yellow-600 text-yellow-600 hover:bg-yellow-600 hover:text-white"
                             >
                               <AlertCircle className="h-4 w-4 mr-1" />
-                              Reativar
+                              Reverter para Meio Pago
                             </Button>
                           )}
                         </div>
