@@ -17,15 +17,19 @@ export default async function AdminPage() {
 
   // Fetch bookings with related data
   const { data: bookings } = await supabase
-    .from("bookings")
+    .from("booking")
     .select(
       `
       *,
-      services (name, price, duration_minutes),
-      profiles (full_name, phone)
+      timeSlots (
+        slot_start,
+        slot_size,
+        dates (date)
+      ),
+      barbers (name)
     `,
     )
-    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
 
   return (
     <div className="min-h-screen bg-black text-white">

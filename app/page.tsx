@@ -1,67 +1,73 @@
+// imports (top of file)
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import Link from "next/link"
 import { Scissors, Clock, MapPin, Phone } from "lucide-react"
 import logo from "@/assets/img/logo.png"
+import { Pirata_One } from 'next/font/google'
+import Silk from './Silk';
 
+const pirata = Pirata_One({ subsets: ['latin'], weight: '400' })
 
 export default function HomePage() {
   return (
     <div className="min-h-screen bg-black text-white">
-      {/* Navigation */}
-      <nav className="flex items-center justify-between p-6 md:px-12">
-        <div className="text-2xl font-bold">
-          <img src="logo3.png" alt="wid" className="w-55 h-auto" />
-          {/* <span className="text-white">Barber</span>
-          <span className="text-[#C1FE72]">Shop</span> */}
-        </div>
-        <div className="flex items-center gap-4">
-          <Link href="/auth/login">
-            <Button variant="ghost" className="text-white hover:text-[#C1FE72]">
-              Login
-            </Button>
-          </Link>
-          <Link href="/booking">
-            <Button className="bg-[#C1FE72] text-black hover:bg-[#A8E55A] font-semibold">Agendar</Button>
-          </Link>
-        </div>
-      </nav>
+        {/* Seção Superior com Fundo Silk (Navegação + Hero) */}
+      <div className="relative overflow-hidden h-screen w-full">
+        {/* Silk Background para toda a seção superior */}
+        <Silk 
+          speed={5}
+          scale={1.3}
+          color="#d6ffdd"
+          noiseIntensity={5}
+          rotation={0.3}
+          className="opacity-40 absolute inset-0 z-0 w-full h-full"
+        />
+        
+        {/* Navigation */}
+        <nav className="flex items-center justify-center p-7 md:px-15 relative z-10">
+          <div className="flex items-center justify-center text-2xl font-bold">
+            <img src="logo1.png" alt="logo" className="w-30 h-auto" />
+          </div>
+        </nav>
 
-      {/* Hero Section */}
-      <section className="px-6 md:px-12 py-16 md:py-24">
-        <div className="max-w-4xl mx-auto text-center">
-          <Badge className="mb-6 bg-teal-900 text-[#C1FE72] border-teal-800">Moderno</Badge>
+        {/* Hero Section */}
+        <section className="px-1 md:px-12 py-3 md:py-3 relative z-10">
+        
+        <div className="max-w-4xl mx-auto text-center relative z-10">
+          <Badge className="mb-6 bg-teal-900 text-[#C1FE72] border-teal-800">Próximo horário livre: 8:00</Badge>
 
-          <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold mb-6 text-balance">
-            Porque lugar de homem
+          <h1 className="text-3xl md:text-10xl lg:text-4xl font-bold mb-10 text-balance">
+            PORQUE LUGAR <br /> DE HOMEM É NA
             <br />
-            <span className="text-[#C1FE72]">é na barbearia!</span>
+            <span className={`${pirata.className} text-7xl lg:text-8xl`}>BARBEARIA!</span>
           </h1>
 
           <p className="text-lg md:text-xl text-gray-300 mb-8 max-w-2xl mx-auto text-pretty">
-            Experimente o melhor em cortes masculinos, barba e cuidados pessoais. Tradição e técnica em cada detalhe.
+            Agende já seu horário e experimente o melhor em cortes masculinos, barba e cuidados pessoais.
           </p>
 
-          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+          <div className="flex flex-col sm:flex-col gap-10 justify-center items-center">
             <Link href="/booking">
-              <Button size="lg" className="bg-[#C1FE72] text-black hover:bg-[#A8E55A] font-semibold px-8 py-3 text-lg">
+              <Button size="lg" className="bg-[#C1FE72] text-black hover:bg-[#A8E55A] font-semibold px-8 py-2 text-lg">
                 <Clock className="mr-2 h-5 w-5" />
                 Agendar Horário
               </Button>
             </Link>
             <Link href="/services">
-              <Button
+              {/* <Button
                 size="lg"
                 variant="outline"
                 className="border-gray-600 text-white hover:bg-gray-900 px-8 py-3 text-lg bg-transparent"
               >
                 Ver Serviços
-              </Button>
+              </Button> */}
             </Link>
           </div>
         </div>
-      </section>
+        </section>
+      </div>
 
       {/* Services Preview */}
       <section className="px-6 md:px-12 py-16 bg-gray-950">
@@ -168,7 +174,7 @@ export default function HomePage() {
       <footer className="bg-gray-950 px-6 md:px-12 py-8 border-t border-gray-800">
         <div className="max-w-4xl mx-auto text-center">
           <div className="text-2xl font-bold mb-4 flex justify-center">
-            <img src="logo3.png" alt="wid" className="w-45 h-auto" />
+            <img src="logo5.png" alt="logo" className="w-45 h-auto" />
             {/* <span className="text-white">Barber</span>
             <span className="text-[#C1FE72]">Shop</span> */}
           </div>

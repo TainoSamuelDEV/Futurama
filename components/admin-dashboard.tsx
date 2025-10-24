@@ -24,19 +24,21 @@ import { createClient } from "@/lib/supabase/client"
 
 interface Booking {
   id: string
-  booking_date: string
-  booking_time: string
-  status: "pending" | "confirmed" | "cancelled" | "completed"
-  notes: string | null
-  created_at: string
-  services: {
-    name: string
-    price: number
-    duration_minutes: number
+  name: string
+  phone: string
+  time_slot: string
+  barber: string
+  observation: number | null
+  created_at?: string
+  timeSlots?: {
+    slot_start: number
+    slot_size: number
+    dates: {
+      date: string
+    }
   }
-  profiles: {
-    full_name: string | null
-    phone: string | null
+  barbers?: {
+    name: string
   }
 }
 

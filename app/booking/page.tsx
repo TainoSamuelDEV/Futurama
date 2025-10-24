@@ -10,11 +10,11 @@ export default async function BookingPage() {
   const { data: barbers } = await supabase.from("barbers").select("*").eq("is_active", true).order("name")
 
   // Fetch time slots
-  const { data: timeSlots } = await supabase.from("time_slots").select("*").eq("is_available", true).order("start_time")
+  const { data: dates } = await supabase.from("dates").select("*").eq("is_available", true).order("date")
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <BookingFlow services={services || []} timeSlots={timeSlots || []} barbers={barbers || []} />
+      <BookingFlow services={services || []} dates={dates || []} barbers={barbers || []} />
     </div>
   )
 }

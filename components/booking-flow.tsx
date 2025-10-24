@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -12,7 +12,9 @@ import { ArrowLeft, ArrowRight, Calendar, Clock, Scissors, User, Check, CreditCa
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 
+
 interface Service {
+  required_slots: number
   id: string
   name: string
   description: string | null
@@ -25,26 +27,36 @@ interface Barber {
   name: string
   specialty: string | null
   image_url: string | null
+  photo_url: string | null
   is_active: boolean
+}
+
+// Interface Dates (adicionar campos)
+interface Dates {
+  id: string
+  date: string
+  barber_id: string
+  is_available: boolean
+  slot_start: number
+  slot_end: number
 }
 
 interface TimeSlot {
   id: string
-  day_of_week: number
-  start_time: string
-  end_time: string
+  slot_start: number
+  slot_size: number
+  date_id: string
+  is_occupied: boolean
   barber_id: string
 }
 
 interface BookingFlowProps {
   services: Service[]
-  timeSlots: TimeSlot[]
+  dates: Dates[]
   barbers: Barber[]
 }
 
-const DAYS_OF_WEEK = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"]
-
-export default function BookingFlow({ services, timeSlots, barbers }: BookingFlowProps) {
+export default function BookingFlow({ services, dates, barbers }: BookingFlowProps) {
   const [currentStep, setCurrentStep] = useState(1)
   const [selectedService, setSelectedService] = useState<Service | null>(null)
   const [selectedBarber, setSelectedBarber] = useState<Barber | null>(null)
@@ -59,42 +71,172 @@ export default function BookingFlow({ services, timeSlots, barbers }: BookingFlo
 
   const getAvailableDates = () => {
     if (!selectedBarber) return []
+    return dates
+      .filter((d) => d.barber_id === selectedBarber.id && d.is_available)
+      .sort((a, b) => a.date.localeCompare(b.date))
+  }
 
-    const dates = []
-    const today = new Date()
+  const [allowedRanges, setAllowedRanges] = useState<Array<{ start: number; end: number }>>([])
+  const [bookedIndices, setBookedIndices] = useState<number[]>([])
+  const [availableStartTimes, setAvailableStartTimes] = useState<string[]>([])
 
-    const barberTimeSlots = timeSlots.filter((slot) => slot.barber_id === selectedBarber.id)
-    const availableDaysOfWeek = [...new Set(barberTimeSlots.map((slot) => slot.day_of_week))]
+  // Converter índice de slot (10 min) para horário (HH:MM)
+  const slotIndexToTime = (idx: number) => {
+    // idx representa slots de 10 minutos
+    const totalMinutes = idx * 10
+    const hours = Math.floor(totalMinutes / 60).toString().padStart(2, "0")
+    const minutes = (totalMinutes % 60).toString().padStart(2, "0")
+    return `${hours}:${minutes}`
+  }
 
-    for (let i = 1; i <= 30; i++) {
-      const date = new Date(today)
-      date.setDate(today.getDate() + i)
-      const dayOfWeek = date.getDay()
+  // Converter horário (HH:MM) para índice de slot (10 min)
+  const timeToSlotIndex = (timeString: string) => {
+    const [hours, minutes] = timeString.split(':').map(Number)
+    const totalMinutes = hours * 60 + minutes
+    return Math.floor(totalMinutes / 10) // Converter para slots de 10 minutos
+  }
 
-      if (availableDaysOfWeek.includes(dayOfWeek)) {
-        dates.push({
-          date: date.toISOString().split("T")[0],
-          dayOfWeek,
-          displayDate: date.toLocaleDateString("pt-BR", {
-            weekday: "short",
-            day: "2-digit",
-            month: "2-digit",
-          }),
-        })
+  // Converter slot_start (10 min) do banco para índice de slot (10 min) da interface
+  const slotStartToIndex = (slotStart: number) => {
+    return slotStart // Agora ambos usam incrementos de 10 minutos
+  }
+
+  // Converter índice de slot (10 min) da interface para slot_start (10 min) do banco
+  const indexToSlotStart = (index: number) => {
+    return index // Agora ambos usam incrementos de 10 minutos
+  }
+
+  const buildAllowedIndices = (ranges: Array<{ start: number; end: number }>) => {
+    const indices = new Set<number>()
+    for (const r of ranges) {
+      for (let i = r.start; i < r.end; i++) {
+        indices.add(i)
       }
     }
-    return dates
+    return indices
   }
 
+  // Buscar horários disponíveis e ocupados em uma única consulta
+  useEffect(() => {
+    if (!selectedBarber || !selectedDate) {
+      setAllowedRanges([])
+      setBookedIndices([])
+      return
+    }
+    
+    const dateRec = dates.find((d) => d.barber_id === selectedBarber.id && d.date === selectedDate)
+    if (!dateRec) {
+      setAllowedRanges([])
+      setBookedIndices([])
+      return
+    }
+
+    const supabase = createClient()
+    
+    // Buscar todos os timeSlots para esta data e barbeiro
+    supabase
+      .from("timeSlots")
+      .select("slot_start, slot_size, is_occupied")
+      .eq("date_id", dateRec.id)
+      .eq("barber_id", selectedBarber.id)
+      .then(({ data, error }) => {
+        if (error) {
+          console.error("Erro ao buscar timeSlots:", { code: error.code, message: error.message })
+          // Fallback para intervalo do próprio registro de `dates`
+          const startIndex = slotStartToIndex(dateRec.slot_start)
+          const endIndex = slotStartToIndex(dateRec.slot_end)
+          setAllowedRanges(endIndex > startIndex ? [{ start: startIndex, end: endIndex }] : [])
+          setBookedIndices([])
+          return
+        }
+
+        // Separar slots disponíveis e ocupados
+        const availableSlots = (data || []).filter(slot => !slot.is_occupied)
+        const occupiedSlots = (data || []).filter(slot => slot.is_occupied)
+
+        // Processar slots disponíveis para allowedRanges
+        const ranges = availableSlots.length > 0
+          ? availableSlots
+              .map((r: any) => {
+                const startIndex = slotStartToIndex(r.slot_start)
+                const endIndex = slotStartToIndex(r.slot_start + (r.slot_size ?? 0))
+                return endIndex > startIndex ? { start: startIndex, end: endIndex } : null
+              })
+              .filter(Boolean) as Array<{ start: number; end: number }>
+          : (() => {
+              // Fallback para o intervalo da data se não houver slots específicos
+              const startIndex = slotStartToIndex(dateRec.slot_start)
+              const endIndex = slotStartToIndex(dateRec.slot_end)
+              return endIndex > startIndex ? [{ start: startIndex, end: endIndex }] : []
+            })()
+
+        // Processar slots ocupados para bookedIndices - incluindo toda a duração do serviço
+        const bookedIndices: number[] = []
+        occupiedSlots.forEach((slot: any) => {
+          const startIndex = slotStartToIndex(slot.slot_start)
+          const slotSize = slot.slot_size || 1 // Usar 1 como padrão se slot_size for null
+          
+          // Marcar todos os slots ocupados pela duração do serviço
+          for (let i = 0; i < slotSize; i++) {
+            bookedIndices.push(startIndex + i)
+          }
+        })
+
+        setAllowedRanges(ranges)
+        setBookedIndices(bookedIndices)
+
+        console.log("Horários disponíveis encontrados:", availableSlots.length)
+        console.log("Horários ocupados encontrados:", occupiedSlots.length)
+        console.log("Slots ocupados (com duração):", bookedIndices)
+        console.log("Dados dos slots ocupados:", occupiedSlots.map(s => ({ 
+          slot_start: s.slot_start, 
+          slot_size: s.slot_size, 
+          startIndex: slotStartToIndex(s.slot_start) 
+        })))
+      })
+  }, [selectedBarber, selectedDate, dates])
+
+  useEffect(() => {
+    if (!selectedService) {
+      setAvailableStartTimes([])
+      return
+    }
+    const required = Math.ceil(selectedService.required_slots)
+    const allowedSet = buildAllowedIndices(allowedRanges)
+    const bookedSet = new Set(bookedIndices)
+    const result: string[] = []
+
+    const allAllowed = Array.from(allowedSet).sort((a, b) => a - b)
+    if (allAllowed.length === 0) {
+      setAvailableStartTimes([])
+      return
+    }
+    const minIdx = allAllowed[0]
+    const maxIdx = allAllowed[allAllowed.length - 1]
+
+    for (let i = minIdx; i <= maxIdx; i++) {
+      let ok = true
+      for (let k = 0; k < required; k++) {
+        const idx = i + k
+        if (!allowedSet.has(idx) || bookedSet.has(idx)) {
+          ok = false
+          break
+        }
+      }
+      if (ok) {
+        result.push(slotIndexToTime(i))
+      }
+    }
+
+    setAvailableStartTimes(result)
+  }, [allowedRanges, bookedIndices, selectedService])
+
+  // Keep ONLY this function
   const getAvailableTimesForDate = () => {
     if (!selectedDate || !selectedBarber) return []
-
-    const date = new Date(selectedDate)
-    const dayOfWeek = date.getDay()
-
-    return timeSlots.filter((slot) => slot.day_of_week === dayOfWeek && slot.barber_id === selectedBarber.id)
+    return availableStartTimes.map((t) => ({ id: t, time: t }))
   }
-
+  
   const handleBooking = async () => {
     if (!selectedService || !selectedBarber || !selectedDate || !selectedTime || !customerName || !customerPhone) return
 
@@ -102,16 +244,76 @@ export default function BookingFlow({ services, timeSlots, barbers }: BookingFlo
     const supabase = createClient()
 
     try {
-      const { error } = await supabase.from("bookings").insert({
-        service_id: selectedService.id,
-        barber_id: selectedBarber.id,
-        booking_date: selectedDate,
-        booking_time: selectedTime,
-        customer_name: customerName,
-        customer_phone: customerPhone,
-        notes: notes || null,
-        status: "pending",
-        payment_option: paymentOption,
+      // Primeiro, encontrar o date_id correspondente
+      const dateRec = dates.find((d) => d.barber_id === selectedBarber.id && d.date === selectedDate)
+      if (!dateRec) {
+        throw new Error("Data não encontrada")
+      }
+
+      // Converter o horário selecionado para slot_start (em slots de 10 min para o banco)
+      const selectedSlotIndex = timeToSlotIndex(selectedTime)
+      const slotStart = indexToSlotStart(selectedSlotIndex)
+      const requiredSlots = Math.ceil(selectedService.required_slots)
+
+      // VERIFICAÇÃO CRÍTICA: Verificar se o horário ainda está disponível
+      const { data: conflictCheck } = await supabase
+        .from("timeSlots")
+        .select("id, is_occupied")
+        .eq("barber_id", selectedBarber.id)
+        .eq("date_id", dateRec.id)
+        .eq("slot_start", slotStart)
+
+      // Se existe um slot e está ocupado, bloquear o agendamento
+      if (conflictCheck && conflictCheck.length > 0 && conflictCheck[0].is_occupied) {
+        throw new Error("Este horário foi ocupado por outro cliente. Por favor, selecione outro horário.")
+      }
+
+      // Encontrar um timeSlot disponível ou criar um novo
+      const { data: existingSlot } = await supabase
+        .from("timeSlots")
+        .select("id")
+        .eq("barber_id", selectedBarber.id)
+        .eq("date_id", dateRec.id)
+        .eq("slot_start", slotStart)
+        .eq("is_occupied", false)
+        .single()
+
+      let timeSlotId: string
+
+      if (existingSlot) {
+        // Marcar o slot como ocupado
+        const { error: updateError } = await supabase
+          .from("timeSlots")
+          .update({ is_occupied: true })
+          .eq("id", existingSlot.id)
+
+        if (updateError) throw updateError
+        timeSlotId = existingSlot.id
+      } else {
+        // Criar um novo timeSlot
+        const { data: newSlot, error: slotError } = await supabase
+          .from("timeSlots")
+          .insert({
+            slot_start: slotStart,
+            slot_size: requiredSlots,
+            date_id: dateRec.id,
+            is_occupied: true,
+            barber_id: selectedBarber.id
+          })
+          .select("id")
+          .single()
+
+        if (slotError) throw slotError
+        timeSlotId = newSlot.id
+      }
+
+      // Criar o booking
+      const { error } = await supabase.from("booking").insert({
+        name: customerName,
+        phone: customerPhone,
+        time_slot: timeSlotId,
+        barber: selectedBarber.id,
+        observation: notes || null,
       })
 
       if (error) throw error
@@ -119,14 +321,15 @@ export default function BookingFlow({ services, timeSlots, barbers }: BookingFlo
       router.push("/booking/success")
     } catch (error) {
       console.error("Error creating booking:", error)
-      alert("Erro ao criar agendamento. Tente novamente.")
+      console.error("Error details:", JSON.stringify(error, null, 2))
+      alert(`Erro ao criar agendamento: ${error instanceof Error ? error.message : 'Erro desconhecido'}`)
     } finally {
       setIsLoading(false)
     }
   }
 
   const handlePayment = () => {
-    if (!paymentOption) return
+    // Para fins de teste, pular a etapa de pagamento
     handleBooking()
   }
 
@@ -143,12 +346,10 @@ export default function BookingFlow({ services, timeSlots, barbers }: BookingFlo
       <nav className="flex items-center justify-between p-4 md:p-6 md:px-12">
         <Link href="/" className="flex items-center gap-2 text-white hover:text-[#C1FE72] transition-colors">
           <ArrowLeft className="h-5 w-5" />
-          <span>Voltar</span>
+          <span>Sair  </span>
         </Link>
         <div className="text-xl md:text-2xl font-bold justify-center">
-          <img src="logo3.png" alt="wid" className="w-45 h-auto" />
-          {/* <span className="text-white">Barber</span>
-          <span className="text-[#C1FE72]">Shop</span> */}
+          <img src="/logo.png" alt="logo" className="w-20 h-auto" />
         </div>
         <div className="w-16 md:w-20"></div>
       </nav>
@@ -166,7 +367,7 @@ export default function BookingFlow({ services, timeSlots, barbers }: BookingFlo
                   >
                     {step < currentStep ? <Check className="h-4 w-4 md:h-5 md:w-5" /> : step}
                   </div>
-                  {step < 5 && <div className={`w-12 md:w-16 h-1 mx-2 ${step < currentStep ? "bg-[#C1FE72]" : "bg-gray-700"}`} />}
+                  {step < 5 && <div className={`w-4 md:w-16 h-1 mx-2 ${step < currentStep ? "bg-[#C1FE72]" : "bg-gray-700"}`} />}
                 </div>
               ))}
             </div>
@@ -215,7 +416,7 @@ export default function BookingFlow({ services, timeSlots, barbers }: BookingFlo
                         }
                       >
                         <Clock className="h-3 w-3 mr-1" />
-                        {service.duration_minutes}min
+                        {Math.ceil(service.required_slots) * 10} min
                       </Badge>
                     </div>
                     <CardTitle className="text-xl">{service.name}</CardTitle>
@@ -252,21 +453,28 @@ export default function BookingFlow({ services, timeSlots, barbers }: BookingFlo
                     <CardHeader className="pb-4">
                       <div className="flex items-center justify-between mb-2">
                         <div
-                          className={`w-16 h-16 rounded-full flex items-center justify-center overflow-hidden ${
+                          className={`w-20 h-20 rounded-full flex items-center justify-center overflow-hidden ${
                             selectedBarber?.id === barber.id ? "bg-black" : "bg-[#C1FE72]"
                           }`}
                         >
-                          {barber.image_url ? (
+                          {(barber.photo_url || barber.image_url) ? (
                             <img
-                              src={barber.image_url || "/placeholder.svg"}
+                              src={barber.photo_url || barber.image_url || ""}
                               alt={barber.name}
                               className="w-full h-full object-cover"
+                              loading="lazy"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.style.display = 'none';
+                                target.nextElementSibling?.classList.remove('hidden');
+                              }}
                             />
-                          ) : (
-                            <User
-                              className={`h-8 w-8 ${selectedBarber?.id === barber.id ? "text-[#C1FE72]" : "text-black"}`}
-                            />
-                          )}
+                          ) : null}
+                          <User
+                            className={`h-8 w-8 ${selectedBarber?.id === barber.id ? "text-[#C1FE72]" : "text-black"} ${
+                              (barber.photo_url || barber.image_url) ? "hidden" : ""
+                            }`}
+                          />
                         </div>
                       </div>
                       <CardTitle className="text-xl">{barber.name}</CardTitle>
@@ -299,11 +507,15 @@ export default function BookingFlow({ services, timeSlots, barbers }: BookingFlo
                 >
                   <CardContent className="p-3 md:p-4 text-center">
                     <Calendar
-                      className={`h-5 w-5 md:h-6 md:w-6 mx-auto mb-2 ${
-                        selectedDate === dateOption.date ? "text-black" : "text-[#C1FE72]"
-                      }`}
+                      className={`h-5 w-5 md:h-6 md:w-6 mx-auto mb-2 ${selectedDate === dateOption.date ? "text-black" : "text-[#C1FE72]"}`}
                     />
-                    <div className="text-xs md:text-sm font-medium">{dateOption.displayDate}</div>
+                    <div className="text-xs md:text-sm font-medium">
+                      {new Date(`${dateOption.date}T00:00:00`).toLocaleDateString("pt-BR", {
+                        weekday: "short",
+                        day: "2-digit",
+                        month: "2-digit",
+                      })}
+                    </div>
                   </CardContent>
                 </Card>
               ))}
@@ -316,19 +528,15 @@ export default function BookingFlow({ services, timeSlots, barbers }: BookingFlo
                 <Card
                   key={timeSlot.id}
                   className={`cursor-pointer transition-all duration-300 ${
-                    selectedTime === timeSlot.start_time
-                      ? "bg-[#C1FE72] text-black border-[#C1FE72]"
-                      : "bg-gray-900 border-gray-800 hover:border-[#C1FE72] text-white"
+                    selectedTime === timeSlot.time ? "bg-[#C1FE72] text-black border-[#C1FE72]" : "bg-gray-900 border-gray-800 hover:border-[#C1FE72] text-white"
                   }`}
-                  onClick={() => setSelectedTime(timeSlot.start_time)}
+                  onClick={() => setSelectedTime(timeSlot.time)}
                 >
                   <CardContent className="p-3 md:p-4 text-center">
                     <Clock
-                      className={`h-4 w-4 md:h-5 md:w-5 mx-auto mb-2 ${
-                        selectedTime === timeSlot.start_time ? "text-black" : "text-[#C1FE72]"
-                      }`}
+                      className={`h-4 w-4 md:h-5 md:w-5 mx-auto mb-2 ${selectedTime === timeSlot.time ? "text-black" : "text-[#C1FE72]"}`}
                     />
-                    <div className="text-xs md:text-sm font-medium">{timeSlot.start_time.slice(0, 5)}</div>
+                    <div className="text-xs md:text-sm font-medium">{timeSlot.time}</div>
                   </CardContent>
                 </Card>
               ))}
@@ -366,7 +574,7 @@ export default function BookingFlow({ services, timeSlots, barbers }: BookingFlo
                     <Input
                       id="customerPhone"
                       type="tel"
-                      placeholder="(11) 99999-9999"
+                      placeholder="(99) 99999-9999"
                       value={customerPhone}
                       onChange={(e) => setCustomerPhone(e.target.value)}
                       className="bg-gray-800 border-gray-700 text-white mt-2"
@@ -394,11 +602,29 @@ export default function BookingFlow({ services, timeSlots, barbers }: BookingFlo
                     </div>
                     <div>
                       <Label className="text-gray-400">Duração</Label>
-                      <p className="text-white">{selectedService?.duration_minutes} minutos</p>
+                      <p className="text-white">{Math.ceil((selectedService?.required_slots ?? 0) / 2) * 10} minutos</p>
                     </div>
                     <div>
                       <Label className="text-gray-400">Barbeiro</Label>
-                      <p className="text-white font-semibold">{selectedBarber?.name}</p>
+                      <div className="flex items-center gap-3 mt-1">
+                        <div className="w-10 h-10 rounded-full overflow-hidden bg-[#C1FE72] flex items-center justify-center">
+                          {(selectedBarber?.photo_url || selectedBarber?.image_url) ? (
+                            <img
+                              src={selectedBarber.photo_url || selectedBarber.image_url || "/placeholder.svg"}
+                              alt={selectedBarber.name}
+                              className="w-full h-full object-cover"
+                              loading="lazy"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.style.display = 'none';
+                                target.nextElementSibling?.classList.remove('hidden');
+                              }}
+                            />
+                          ) : null}
+                          <User className={`h-5 w-5 text-black ${(selectedBarber?.photo_url || selectedBarber?.image_url) ? "hidden" : ""}`} />
+                        </div>
+                        <p className="text-white font-semibold">{selectedBarber?.name}</p>
+                      </div>
                     </div>
                     <div>
                       <Label className="text-gray-400">Data</Label>
@@ -432,6 +658,8 @@ export default function BookingFlow({ services, timeSlots, barbers }: BookingFlo
                 </CardContent>
               </Card>
 
+              {/* Seção de pagamento comentada para fins de teste */}
+              {/* 
               <Card className="bg-gray-900 border-gray-800">
                 <CardHeader>
                   <CardTitle className="text-2xl text-white flex items-center gap-2">
@@ -474,6 +702,20 @@ export default function BookingFlow({ services, timeSlots, barbers }: BookingFlo
                   </div>
                 </CardContent>
               </Card>
+              */}
+
+              {/* Aviso para fins de teste */}
+              <Card className="bg-yellow-900 border-yellow-600">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 text-yellow-200">
+                    <Check className="h-5 w-5" />
+                    <span className="font-semibold">Modo de Teste</span>
+                  </div>
+                  <p className="text-yellow-100 text-sm mt-2">
+                    O pagamento foi desabilitado para fins de teste. O agendamento será confirmado diretamente.
+                  </p>
+                </CardContent>
+              </Card>
             </div>
           )}
 
@@ -505,11 +747,11 @@ export default function BookingFlow({ services, timeSlots, barbers }: BookingFlo
             ) : (
               <Button
                 onClick={handlePayment}
-                disabled={isLoading || !customerName || !customerPhone || !paymentOption}
+                disabled={isLoading || !customerName || !customerPhone}
                 className="bg-[#C1FE72] text-black hover:bg-[#A8E55A] font-semibold w-full sm:w-auto"
               >
-                {isLoading ? "Processando..." : "Ir para Pagamento"}
-                <CreditCard className="h-4 w-4 ml-2" />
+                {isLoading ? "Processando..." : "Confirmar Agendamento"}
+                <Check className="h-4 w-4 ml-2" />
               </Button>
             )}
           </div>
