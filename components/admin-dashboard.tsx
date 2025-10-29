@@ -6,6 +6,8 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
 import Link from "next/link"
 import {
   ArrowLeft,
@@ -19,6 +21,9 @@ import {
   XCircle,
   AlertCircle,
   Scissors,
+  Edit,
+  Trash2,
+  Eye,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 
@@ -31,7 +36,8 @@ interface Booking {
   service_id?: number
   payment_status?: string
   observation?: string | null
-  created_at?: string
+  booked_in?: string
+  // Dados relacionais que podem vir das consultas
   timeSlots?: {
     slot_start: number
     slot_size: number
@@ -42,6 +48,10 @@ interface Booking {
   barbers?: {
     name: string
   }
+  services?: {
+    name: string
+    price: number
+  } | null
 }
 
 interface AdminDashboardProps {
@@ -57,11 +67,24 @@ const STATUS_CONFIG = {
 export default function AdminDashboard({ bookings }: AdminDashboardProps) {
   const [filteredBookings, setFilteredBookings] = useState(bookings)
   const [statusFilter, setStatusFilter] = useState<string>("all")
+  const [barberFilter, setBarberFilter] = useState<string>("all")
+  const [dateFilter, setDateFilter] = useState<string>("all")
   const [searchTerm, setSearchTerm] = useState("")
   const [isUpdating, setIsUpdating] = useState<string | null>(null)
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+  const [bookingToDelete, setBookingToDelete] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState({
+    name: "",
+    phone: "",
+    barber: "",
+    time_slot: "",
+    observation: "",
+  })
 
-  // Filter bookings based on status and search term
-  const filterBookings = (status: string, search: string) => {
+  // Filter bookings based on all filters
+  const filterBookings = (status: string, search: string, barber?: string, date?: string) => {
     let filtered = bookings
 
     if (status !== "all") {
@@ -77,6 +100,37 @@ export default function AdminDashboard({ bookings }: AdminDashboardProps) {
       )
     }
 
+    // Filtro por barbeiro
+    const currentBarberFilter = barber || barberFilter
+    if (currentBarberFilter !== "all") {
+      filtered = filtered.filter((booking) => booking.barber === currentBarberFilter)
+    }
+
+    // Filtro por período
+    const currentDateFilter = date || dateFilter
+    if (currentDateFilter !== "all") {
+      const now = new Date()
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      
+      filtered = filtered.filter((booking) => {
+        if (!booking.booked_in) return true
+        const bookingDate = new Date(booking.booked_in)
+        
+        switch (currentDateFilter) {
+          case "today":
+            return bookingDate >= today
+          case "week":
+            const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
+            return bookingDate >= weekAgo
+          case "month":
+            const monthAgo = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate())
+            return bookingDate >= monthAgo
+          default:
+            return true
+        }
+      })
+    }
+
     setFilteredBookings(filtered)
   }
 
@@ -90,6 +144,16 @@ export default function AdminDashboard({ bookings }: AdminDashboardProps) {
     filterBookings(statusFilter, search)
   }
 
+  const handleBarberFilter = (barber: string) => {
+    setBarberFilter(barber)
+    filterBookings(statusFilter, searchTerm, barber)
+  }
+
+  const handleDateFilter = (date: string) => {
+    setDateFilter(date)
+    filterBookings(statusFilter, searchTerm, barberFilter, date)
+  }
+
   const updateBookingStatus = async (bookingId: string, newStatus: string) => {
     setIsUpdating(bookingId)
     const supabase = createClient()
@@ -99,28 +163,90 @@ export default function AdminDashboard({ bookings }: AdminDashboardProps) {
 
       if (error) throw error
 
-      // Update local state
-      const updatedBookings = bookings.map((booking) =>
-        booking.id === bookingId ? { ...booking, payment_status: newStatus } : booking,
-      )
-
       // Re-filter with updated data
-      let filtered = updatedBookings
-      if (statusFilter !== "all") {
-        filtered = filtered.filter((booking) => booking.payment_status === statusFilter)
-      }
-      if (searchTerm) {
-        filtered = filtered.filter(
-          (booking) =>
-            booking.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            booking.phone?.includes(searchTerm) ||
-            booking.barber.toLowerCase().includes(searchTerm.toLowerCase()),
-        )
-      }
-      setFilteredBookings(filtered)
+      filterBookings(statusFilter, searchTerm)
     } catch (error) {
       console.error("Error updating booking status:", error)
       alert("Erro ao atualizar status do agendamento")
+    } finally {
+      setIsUpdating(null)
+    }
+  }
+
+  const openEditModal = (booking: Booking) => {
+    setSelectedBooking(booking)
+    setEditForm({
+      name: booking.name,
+      phone: booking.phone,
+      barber: booking.barber,
+      time_slot: booking.time_slot,
+      observation: booking.observation || ""
+    })
+    setIsEditModalOpen(true)
+  }
+
+  const closeEditModal = () => {
+    setSelectedBooking(null)
+    setIsEditModalOpen(false)
+    setEditForm({ name: "", phone: "", barber: "", time_slot: "", observation: "" })
+  }
+
+  const updateBookingInfo = async () => {
+    if (!selectedBooking) return
+
+    setIsUpdating(selectedBooking.id)
+    const supabase = createClient()
+
+    try {
+      const { error } = await supabase
+        .from("booking")
+        .update({
+          name: editForm.name,
+          phone: editForm.phone,
+          barber: editForm.barber,
+          time_slot: editForm.time_slot,
+          observation: editForm.observation
+        })
+        .eq("id", selectedBooking.id)
+
+      if (error) throw error
+
+      // Re-filter with updated data
+      filterBookings(statusFilter, searchTerm)
+      closeEditModal()
+      alert("Agendamento atualizado com sucesso!")
+    } catch (error) {
+      console.error("Error updating booking info:", error)
+      alert("Erro ao atualizar informações do agendamento")
+    } finally {
+      setIsUpdating(null)
+    }
+  }
+
+  const deleteBooking = async (bookingId: string) => {
+    setBookingToDelete(bookingId)
+    setIsDeleteModalOpen(true)
+  }
+
+  const confirmDeleteBooking = async () => {
+    if (!bookingToDelete) return
+
+    setIsUpdating(bookingToDelete)
+    const supabase = createClient()
+
+    try {
+      const { error } = await supabase.from("booking").delete().eq("id", bookingToDelete)
+
+      if (error) throw error
+
+      // Re-filter with updated data
+      filterBookings(statusFilter, searchTerm)
+      setIsDeleteModalOpen(false)
+      setBookingToDelete(null)
+      alert("Agendamento excluído com sucesso!")
+    } catch (error) {
+      console.error("Error deleting booking:", error)
+      alert("Erro ao excluir agendamento")
     } finally {
       setIsUpdating(null)
     }
@@ -163,11 +289,11 @@ export default function AdminDashboard({ bookings }: AdminDashboardProps) {
           </div>
 
           {/* Stats Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
             <Card className="bg-gray-900 border-gray-800">
               <CardContent className="p-4 text-center">
                 <div className="text-2xl font-bold text-[#C1FE72]">{statusCounts.total}</div>
-                <div className="text-sm text-gray-400">Total</div>
+                <div className="text-sm text-gray-400">Total de Agendamentos</div>
               </CardContent>
             </Card>
             <Card className="bg-gray-900 border-gray-800">
@@ -188,11 +314,22 @@ export default function AdminDashboard({ bookings }: AdminDashboardProps) {
                 <div className="text-sm text-gray-400">Pago</div>
               </CardContent>
             </Card>
+            <Card className="bg-gray-900 border-gray-800">
+              <CardContent className="p-4 text-center">
+                <div className="text-2xl font-bold text-green-500">
+                  R$ {bookings
+                    .filter(b => b.payment_status === "PAGO" && b.services)
+                    .reduce((sum, b) => sum + (b.services?.price || 0), 0)
+                    .toFixed(2)}
+                </div>
+                <div className="text-sm text-gray-400">Receita Total</div>
+              </CardContent>
+            </Card>
           </div>
 
-          {/* Filters */}
-          <div className="flex flex-col md:flex-row gap-4 mb-8">
-            <div className="flex-1">
+          {/* Filtros Avançados */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            <div>
               <Label htmlFor="search" className="text-gray-400 mb-2 block">
                 Buscar agendamentos
               </Label>
@@ -207,18 +344,48 @@ export default function AdminDashboard({ bookings }: AdminDashboardProps) {
                 />
               </div>
             </div>
-            <div className="md:w-48">
+            <div>
               <Label className="text-gray-400 mb-2 block">Filtrar por status</Label>
               <Select value={statusFilter} onValueChange={handleStatusFilter}>
                 <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
                   <Filter className="h-4 w-4 mr-2" />
-                  <SelectValue />
+                  <SelectValue placeholder="Todos os Status" />
                 </SelectTrigger>
                 <SelectContent className="bg-gray-800 border-gray-700">
-                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="all">Todos os Status</SelectItem>
                   <SelectItem value="NPAGO">Não Pago</SelectItem>
                   <SelectItem value="METPAGO">Meio Pago</SelectItem>
                   <SelectItem value="PAGO">Pago</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-gray-400 mb-2 block">Filtrar por barbeiro</Label>
+              <Select value={barberFilter} onValueChange={handleBarberFilter}>
+                <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
+                  <Scissors className="h-4 w-4 mr-2" />
+                  <SelectValue placeholder="Todos os Barbeiros" />
+                </SelectTrigger>
+                <SelectContent className="bg-gray-800 border-gray-700">
+                  <SelectItem value="all">Todos os Barbeiros</SelectItem>
+                  {Array.from(new Set(bookings.map(b => b.barber))).map(barber => (
+                    <SelectItem key={barber} value={barber}>{barber}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-gray-400 mb-2 block">Filtrar por período</Label>
+              <Select value={dateFilter} onValueChange={handleDateFilter}>
+                <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
+                  <Calendar className="h-4 w-4 mr-2" />
+                  <SelectValue placeholder="Todos os Períodos" />
+                </SelectTrigger>
+                <SelectContent className="bg-gray-800 border-gray-700">
+                  <SelectItem value="all">Todos os Períodos</SelectItem>
+                  <SelectItem value="today">Hoje</SelectItem>
+                  <SelectItem value="week">Esta Semana</SelectItem>
+                  <SelectItem value="month">Este Mês</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -234,7 +401,7 @@ export default function AdminDashboard({ bookings }: AdminDashboardProps) {
                   <Card key={booking.id} className="bg-gray-900 border-gray-800">
                     <CardContent className="p-6">
                       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                        <div className="flex-1 grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="flex-1 grid md:grid-cols-2 lg:grid-cols-5 gap-4">
                           <div>
                               <Label className="text-gray-400 text-xs">Cliente</Label>
                               <div className="flex items-center gap-2 mt-1">
@@ -247,6 +414,20 @@ export default function AdminDashboard({ bookings }: AdminDashboardProps) {
                                 <div className="flex items-center gap-2 mt-1">
                                   <Phone className="h-3 w-3 text-gray-400" />
                                   <span className="text-gray-400 text-sm">{booking.phone}</span>
+                                </div>
+                              )}
+                              {booking.booked_in && (
+                                <div className="flex items-center gap-2 mt-1">
+                                  <Calendar className="h-3 w-3 text-gray-400" />
+                                  <span className="text-gray-400 text-sm">
+                                    {new Date(booking.booked_in).toLocaleDateString('pt-BR', {
+                                      day: '2-digit',
+                                      month: '2-digit',
+                                      year: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit'
+                                    })}
+                                  </span>
                                 </div>
                               )}
                             </div>
@@ -269,17 +450,31 @@ export default function AdminDashboard({ bookings }: AdminDashboardProps) {
                               </div>
                             </div>
 
+                            {booking.services && (
+                              <div>
+                                <Label className="text-gray-400 text-xs">Serviço</Label>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <Calendar className="h-4 w-4 text-[#C1FE72]" />
+                                  <span className="text-white font-medium">{booking.services.name}</span>
+                                </div>
+                                <div className="text-gray-400 text-sm mt-1">
+                                  R$ {booking.services.price.toFixed(2)}
+                                </div>
+                              </div>
+                            )}
+
                           <div>
                               <Label className="text-gray-400 text-xs">Status</Label>
                               <div className="flex items-center gap-2 mt-1">
                                 <div className={`w-3 h-3 rounded-full ${STATUS_CONFIG[statusKey].color}`}></div>
                                 <span className="text-white font-medium">{STATUS_CONFIG[statusKey].label}</span>
-                              </div>
-                              {booking.observation && <p className="text-gray-400 text-sm mt-1 italic">Obs: {booking.observation}</p>}
                             </div>
+                            {booking.observation && <p className="text-gray-400 text-sm mt-1 italic">Obs: {booking.observation}</p>}
+                          </div>
                         </div>
 
                         <div className="flex flex-wrap gap-2">
+                          {/* Botões de Status */}
                           {booking.payment_status === "NPAGO" && (
                             <>
                               <Button
@@ -337,6 +532,29 @@ export default function AdminDashboard({ bookings }: AdminDashboardProps) {
                               Reverter para Meio Pago
                             </Button>
                           )}
+                          
+                          {/* Botões de Ação */}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openEditModal(booking)}
+                            disabled={isUpdating === booking.id}
+                            className="border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white"
+                          >
+                            <Edit className="h-4 w-4 mr-1" />
+                            Editar
+                          </Button>
+                          
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => deleteBooking(booking.id)}
+                            disabled={isUpdating === booking.id}
+                            className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                          >
+                            <Trash2 className="h-4 w-4 mr-1" />
+                            Excluir
+                          </Button>
                         </div>
                       </div>
                     </CardContent>
@@ -359,6 +577,99 @@ export default function AdminDashboard({ bookings }: AdminDashboardProps) {
           </div>
         </div>
       </div>
+
+      {/* Modal de Edição */}
+      <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar Agendamento</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="edit-name">Nome</Label>
+              <Input
+                id="edit-name"
+                value={editForm.name}
+                onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                placeholder="Nome do cliente"
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-phone">Telefone</Label>
+              <Input
+                id="edit-phone"
+                value={editForm.phone}
+                onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                placeholder="Telefone do cliente"
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-barber">Barbeiro</Label>
+              <Input
+                id="edit-barber"
+                value={editForm.barber}
+                onChange={(e) => setEditForm({ ...editForm, barber: e.target.value })}
+                placeholder="Nome do barbeiro"
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-time-slot">Horário</Label>
+              <Input
+                id="edit-time-slot"
+                value={editForm.time_slot}
+                onChange={(e) => setEditForm({ ...editForm, time_slot: e.target.value })}
+                placeholder="Horário do agendamento"
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-observation">Observação</Label>
+              <Textarea
+                id="edit-observation"
+                value={editForm.observation || ""}
+                onChange={(e) => setEditForm({ ...editForm, observation: e.target.value })}
+                placeholder="Observações sobre o agendamento"
+                rows={3}
+              />
+            </div>
+            <div className="flex gap-2 pt-4">
+              <Button onClick={updateBookingInfo} className="flex-1">
+                Salvar Alterações
+              </Button>
+              <Button variant="outline" onClick={closeEditModal} className="flex-1">
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Confirmação de Exclusão */}
+      <Dialog open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirmar Exclusão</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p>Tem certeza que deseja excluir este agendamento? Esta ação não pode ser desfeita.</p>
+            <div className="flex gap-2 pt-4">
+              <Button 
+                onClick={confirmDeleteBooking} 
+                variant="destructive" 
+                className="flex-1"
+              >
+                Excluir
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={() => setIsDeleteModalOpen(false)} 
+                className="flex-1"
+              >
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

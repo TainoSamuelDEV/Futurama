@@ -62,11 +62,14 @@ export default function BookingFlow({ services, dates, barbers }: BookingFlowPro
   const [selectedBarber, setSelectedBarber] = useState<Barber | null>(null)
   const [selectedDate, setSelectedDate] = useState<string>("")
   const [selectedTime, setSelectedTime] = useState<string>("")
+  const [selectedHour, setSelectedHour] = useState<string>("")
+  const [showMinutes, setShowMinutes] = useState(false)
   const [notes, setNotes] = useState("")
   const [customerName, setCustomerName] = useState("")
+  const [nameError, setNameError] = useState("")
   const [customerPhone, setCustomerPhone] = useState("")
+  const [phoneError, setPhoneError] = useState("")
   const [paymentOption, setPaymentOption] = useState<"50" | "100" | "">("")
-  const [paymentStatus, setPaymentStatus] = useState<"PAGO" | "NPAGO" | "METPAGO">("NPAGO")
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
 
@@ -185,15 +188,6 @@ export default function BookingFlow({ services, dates, barbers }: BookingFlowPro
 
         setAllowedRanges(ranges)
         setBookedIndices(bookedIndices)
-
-        console.log("Horários disponíveis encontrados:", availableSlots.length)
-        console.log("Horários ocupados encontrados:", occupiedSlots.length)
-        console.log("Slots ocupados (com duração):", bookedIndices)
-        console.log("Dados dos slots ocupados:", occupiedSlots.map(s => ({ 
-          slot_start: s.slot_start, 
-          slot_size: s.slot_size, 
-          startIndex: slotStartToIndex(s.slot_start) 
-        })))
       })
   }, [selectedBarber, selectedDate, dates])
 
@@ -237,9 +231,182 @@ export default function BookingFlow({ services, dates, barbers }: BookingFlowPro
     if (!selectedDate || !selectedBarber) return []
     return availableStartTimes.map((t) => ({ id: t, time: t }))
   }
+
+  // Função para obter horas únicas disponíveis
+  const getAvailableHours = () => {
+    if (!selectedDate || !selectedBarber) return []
+    const hours = new Set<string>()
+    availableStartTimes.forEach(time => {
+      const hour = time.split(':')[0]
+      hours.add(hour)
+    })
+    return Array.from(hours).sort((a, b) => parseInt(a) - parseInt(b))
+  }
+
+  // Função para obter minutos disponíveis para uma hora específica
+  const getAvailableMinutesForHour = (hour: string) => {
+    if (!selectedDate || !selectedBarber || !hour) return []
+    return availableStartTimes
+      .filter(time => time.startsWith(hour + ':'))
+      .sort()
+  }
+
+  // Função para lidar com seleção de hora
+  const handleHourSelection = (hour: string) => {
+    setSelectedHour(hour)
+    setShowMinutes(true)
+    setSelectedTime("") // Reset da seleção de tempo específico
+  }
+
+  // Função para lidar com seleção de minuto
+  const handleMinuteSelection = (time: string) => {
+    setSelectedTime(time)
+  }
+
+  // Função para voltar à seleção de horas
+  const handleBackToHours = () => {
+    setSelectedHour("")
+    setShowMinutes(false)
+    setSelectedTime("")
+  }
+
+  // Funções de validação do telefone
+  const formatPhoneNumber = (value: string) => {
+    // Remove todos os caracteres não numéricos
+    const numbers = value.replace(/\D/g, '')
+    
+    // Limita a 11 dígitos
+    const limitedNumbers = numbers.slice(0, 11)
+    
+    // Aplica a formatação (99) 99999-9999
+    if (limitedNumbers.length <= 2) {
+      return limitedNumbers
+    } else if (limitedNumbers.length <= 7) {
+      return `(${limitedNumbers.slice(0, 2)}) ${limitedNumbers.slice(2)}`
+    } else {
+      return `(${limitedNumbers.slice(0, 2)}) ${limitedNumbers.slice(2, 7)}-${limitedNumbers.slice(7)}`
+    }
+  }
+
+  const validatePhoneNumber = (phone: string) => {
+    const numbers = phone.replace(/\D/g, '')
+    
+    if (numbers.length === 0) {
+      return "Número de telefone é obrigatório"
+    } else if (numbers.length < 11) {
+      return `Número deve ter 11 dígitos. Faltam ${11 - numbers.length} dígito${11 - numbers.length > 1 ? 's' : ''}`
+    } else if (numbers.length > 11) {
+      return "Número deve ter exatamente 11 dígitos"
+    }
+    
+    // Validação adicional: verificar se o DDD é válido (11-99)
+    const ddd = parseInt(numbers.slice(0, 2))
+    if (ddd < 11 || ddd > 99) {
+      return "DDD inválido. Use um DDD entre 11 e 99"
+    }
+    
+    // Validação adicional: verificar se o primeiro dígito do número é 9 (celular)
+    const firstDigit = numbers.charAt(2)
+    if (firstDigit !== '9') {
+      return "Número deve ser de celular (começar com 9 após o DDD)"
+    }
+    
+    return ""
+  }
+
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formattedValue = formatPhoneNumber(e.target.value)
+    setCustomerPhone(formattedValue)
+    
+    // Validar em tempo real - sempre executar a validação
+    const error = validatePhoneNumber(formattedValue)
+    setPhoneError(error)
+  }
+
+  // Funções de validação do nome
+  const validateName = (name: string) => {
+    const trimmedName = name.trim()
+    
+    if (trimmedName.length === 0) {
+      return "Nome completo é obrigatório"
+    }
+    
+    if (trimmedName.length < 2) {
+      return "Nome deve ter pelo menos 2 caracteres"
+    }
+    
+    // Verificar se contém pelo menos um espaço (nome e sobrenome)
+    const nameParts = trimmedName.split(' ').filter(part => part.length > 0)
+    if (nameParts.length < 2) {
+      return "Por favor, informe seu nome completo (nome e sobrenome)"
+    }
+    
+    // Verificar se cada parte do nome tem pelo menos 2 caracteres
+    const hasShortPart = nameParts.some(part => part.length < 2)
+    if (hasShortPart) {
+      return "Cada parte do nome deve ter pelo menos 2 caracteres"
+    }
+    
+    // Verificar se contém apenas letras, espaços e acentos
+    const nameRegex = /^[a-zA-ZÀ-ÿ\u00C0-\u017F\s]+$/
+    if (!nameRegex.test(trimmedName)) {
+      return "Nome deve conter apenas letras e espaços"
+    }
+    
+    return ""
+  }
+
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    setCustomerName(value)
+    
+    // Validar em tempo real - sempre executar a validação
+    const error = validateName(value)
+    setNameError(error)
+  }
+
+
+  // Effect para resetar seleção quando data ou barbeiro mudam
+  useEffect(() => {
+    setSelectedHour("")
+    setShowMinutes(false)
+    setSelectedTime("")
+  }, [selectedDate, selectedBarber])
+
+  // Effect para validação inicial dos campos
+  useEffect(() => {
+    // Validar nome inicial
+    if (customerName.length > 0) {
+      const nameError = validateName(customerName)
+      setNameError(nameError)
+    } else {
+      setNameError("Nome completo é obrigatório")
+    }
+
+    // Validar telefone inicial
+    if (customerPhone.length > 0) {
+      const phoneError = validatePhoneNumber(customerPhone)
+      setPhoneError(phoneError)
+    } else {
+      setPhoneError("Número de telefone é obrigatório")
+    }
+  }, [customerName, customerPhone])
   
   const handleBooking = async () => {
     if (!selectedService || !selectedBarber || !selectedDate || !selectedTime || !customerName || !customerPhone) return
+
+    // Forçar validação completa antes de processar
+    const nameValidationError = validateName(customerName)
+    const phoneValidationError = validatePhoneNumber(customerPhone)
+    
+    // Atualizar estados de erro
+    setNameError(nameValidationError)
+    setPhoneError(phoneValidationError)
+    
+    // Se houver qualquer erro, interromper o processo
+    if (nameValidationError || phoneValidationError) {
+      return
+    }
 
     setIsLoading(true)
     const supabase = createClient()
@@ -308,23 +475,12 @@ export default function BookingFlow({ services, dates, barbers }: BookingFlowPro
         timeSlotId = newSlot.id
       }
 
-      // Determinar o status de pagamento baseado na opção selecionada
-      let finalPaymentStatus: "PAGO" | "NPAGO" | "METPAGO" = "NPAGO"
-      if (paymentOption === "100") {
-        finalPaymentStatus = "PAGO"
-      } else if (paymentOption === "50") {
-        finalPaymentStatus = "METPAGO"
-      }
-      // Se paymentOption estiver vazio, mantém "NPAGO" como padrão
-
       // Criar o booking
       const { error } = await supabase.from("booking").insert({
         name: customerName,
         phone: customerPhone,
         time_slot: timeSlotId,
         barber: selectedBarber.id,
-        service_id: selectedService.id,
-        payment_status: finalPaymentStatus,
         observation: notes || null,
       })
 
@@ -390,10 +546,16 @@ export default function BookingFlow({ services, dates, barbers }: BookingFlowPro
               {currentStep === 1 && "Escolha seu serviço"}
               {currentStep === 2 && "Selecione seu barbeiro"}
               {currentStep === 3 && "Selecione a data"}
-              {currentStep === 4 && "Escolha o horário"}
+              {currentStep === 4 && !showMinutes && "Escolha a hora"}
+              {currentStep === 4 && showMinutes && !selectedTime && "Escolha o horário específico"}
+              {currentStep === 4 && selectedTime && "Horário selecionado"}
               {currentStep === 5 && "Confirme seu agendamento"}
             </h1>
-            <p className="text-gray-400">Etapa {currentStep} de 5</p>
+            <p className="text-gray-400">
+              Etapa {currentStep} de 5
+              {currentStep === 4 && selectedHour && !selectedTime && ` - Hora: ${selectedHour}:00`}
+              {currentStep === 4 && selectedTime && ` - ${selectedTime}`}
+            </p>
           </div>
 
           {currentStep === 1 && (
@@ -535,23 +697,97 @@ export default function BookingFlow({ services, dates, barbers }: BookingFlowPro
           )}
 
           {currentStep === 4 && (
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 md:gap-4">
-              {getAvailableTimesForDate().map((timeSlot) => (
-                <Card
-                  key={timeSlot.id}
-                  className={`cursor-pointer transition-all duration-300 ${
-                    selectedTime === timeSlot.time ? "bg-[#C1FE72] text-black border-[#C1FE72]" : "bg-gray-900 border-gray-800 hover:border-[#C1FE72] text-white"
-                  }`}
-                  onClick={() => setSelectedTime(timeSlot.time)}
-                >
-                  <CardContent className="p-3 md:p-4 text-center">
-                    <Clock
-                      className={`h-4 w-4 md:h-5 md:w-5 mx-auto mb-2 ${selectedTime === timeSlot.time ? "text-black" : "text-[#C1FE72]"}`}
-                    />
-                    <div className="text-xs md:text-sm font-medium">{timeSlot.time}</div>
-                  </CardContent>
-                </Card>
-              ))}
+            <div className="space-y-6">
+              {/* Primeira Etapa: Seleção de Horas */}
+              {!showMinutes && (
+                <div>
+                  <h3 className="text-xl font-semibold text-white mb-6 text-center">
+                    Selecione a hora desejada
+                  </h3>
+                  <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-4">
+                    {getAvailableHours().map((hour) => (
+                      <Card
+                        key={hour}
+                        className="cursor-pointer transition-all duration-300 bg-gray-900 border-gray-800 hover:border-[#C1FE72] text-white hover:bg-gray-800"
+                        onClick={() => handleHourSelection(hour)}
+                      >
+                        <CardContent className="p-4 text-center">
+                          <Clock className="h-6 w-6 mx-auto mb-3 text-[#C1FE72]" />
+                          <div className="text-lg font-bold">{hour}</div>
+                          <div className="text-xs text-gray-400 mt-1">hora</div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                  {getAvailableHours().length === 0 && (
+                    <div className="text-center text-gray-400 py-8">
+                      <Clock className="h-12 w-12 mx-auto mb-4 text-gray-600" />
+                      <p>Nenhum horário disponível para esta data</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Segunda Etapa: Seleção de Minutos */}
+              {showMinutes && !selectedTime && (
+                <div>
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-xl font-semibold text-white">
+                      Horários disponíveis para {selectedHour}:00
+                    </h3>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleBackToHours}
+                      className="border-gray-600 text-gray-300 hover:bg-gray-800"
+                    >
+                      <ArrowLeft className="h-4 w-4 mr-2" />
+                      Voltar às horas
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4">
+                    {getAvailableMinutesForHour(selectedHour).map((time) => (
+                      <Card
+                        key={time}
+                        className="cursor-pointer transition-all duration-300 bg-gray-900 border-gray-800 hover:border-[#C1FE72] text-white hover:bg-gray-800"
+                        onClick={() => handleMinuteSelection(time)}
+                      >
+                        <CardContent className="p-4 text-center">
+                          <Clock className="h-5 w-5 mx-auto mb-2 text-[#C1FE72]" />
+                          <div className="text-sm font-medium">{time}</div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                  {getAvailableMinutesForHour(selectedHour).length === 0 && (
+                    <div className="text-center text-gray-400 py-8">
+                      <Clock className="h-12 w-12 mx-auto mb-4 text-gray-600" />
+                      <p>Nenhum horário disponível para {selectedHour}:00</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Confirmação do Horário Selecionado */}
+              {selectedTime && (
+                <div className="text-center">
+                  <div className="inline-flex items-center gap-4 bg-[#C1FE72] text-black px-8 py-6 rounded-lg">
+                    <Clock className="h-8 w-8" />
+                    <div>
+                      <div className="text-lg font-semibold">Horário Selecionado:</div>
+                      <div className="text-3xl font-bold">{selectedTime}</div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleBackToHours}
+                      className="border-black text-black hover:bg-black hover:text-[#C1FE72] ml-4"
+                    >
+                      Alterar
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -574,10 +810,24 @@ export default function BookingFlow({ services, dates, barbers }: BookingFlowPro
                       type="text"
                       placeholder="Digite seu nome completo"
                       value={customerName}
-                      onChange={(e) => setCustomerName(e.target.value)}
-                      className="bg-gray-800 border-gray-700 text-white mt-2"
+                      onChange={handleNameChange}
+                      className={`bg-gray-800 border-gray-700 text-white mt-2 ${
+                        nameError ? 'border-red-500 focus:border-red-500' : ''
+                      }`}
                       required
                     />
+                    {nameError && (
+                      <p className="text-red-400 text-sm mt-1 flex items-center gap-1">
+                        <span className="text-red-400">⚠</span>
+                        {nameError}
+                      </p>
+                    )}
+                    {customerName.trim() && !nameError && (
+                      <p className="text-green-400 text-sm mt-1 flex items-center gap-1">
+                        <span className="text-green-400">✓</span>
+                        Nome válido
+                      </p>
+                    )}
                   </div>
                   <div>
                     <Label htmlFor="customerPhone" className="text-gray-400">
@@ -588,10 +838,24 @@ export default function BookingFlow({ services, dates, barbers }: BookingFlowPro
                       type="tel"
                       placeholder="(99) 99999-9999"
                       value={customerPhone}
-                      onChange={(e) => setCustomerPhone(e.target.value)}
-                      className="bg-gray-800 border-gray-700 text-white mt-2"
+                      onChange={handlePhoneChange}
+                      className={`bg-gray-800 border-gray-700 text-white mt-2 ${
+                        phoneError ? 'border-red-500 focus:border-red-500' : ''
+                      }`}
                       required
                     />
+                    {phoneError && (
+                      <p className="text-red-400 text-sm mt-1 flex items-center gap-1">
+                        <span className="text-red-400">⚠</span>
+                        {phoneError}
+                      </p>
+                    )}
+                    {customerPhone.trim() && !phoneError && (
+                      <p className="text-green-400 text-sm mt-1 flex items-center gap-1">
+                        <span className="text-green-400">✓</span>
+                        Número válido
+                      </p>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -670,7 +934,8 @@ export default function BookingFlow({ services, dates, barbers }: BookingFlowPro
                 </CardContent>
               </Card>
 
-              {/* Seção de pagamento */}
+              {/* Seção de pagamento comentada para fins de teste */}
+              {/* 
               <Card className="bg-gray-900 border-gray-800">
                 <CardHeader>
                   <CardTitle className="text-2xl text-white flex items-center gap-2">
@@ -679,21 +944,7 @@ export default function BookingFlow({ services, dates, barbers }: BookingFlowPro
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid grid-cols-3 gap-4">
-                    <Card
-                      className={`cursor-pointer transition-all duration-300 ${
-                        paymentOption === ""
-                          ? "bg-[#C1FE72] text-black border-[#C1FE72]"
-                          : "bg-gray-800 border-gray-700 hover:border-[#C1FE72] text-white"
-                      }`}
-                      onClick={() => setPaymentOption("")}
-                    >
-                      <CardContent className="p-4 text-center">
-                        <div className="text-lg font-bold mb-2">Não Pago</div>
-                        <div className="text-sm">R$ 0,00</div>
-                        <div className="text-xs mt-1 opacity-75">Pagamento no local</div>
-                      </CardContent>
-                    </Card>
+                  <div className="grid grid-cols-2 gap-4">
                     <Card
                       className={`cursor-pointer transition-all duration-300 ${
                         paymentOption === "50"
@@ -727,23 +978,24 @@ export default function BookingFlow({ services, dates, barbers }: BookingFlowPro
                   </div>
                 </CardContent>
               </Card>
+              */}
 
-              {/* Informação sobre pagamento */}
-              <Card className="bg-blue-900 border-blue-600">
+              {/* Aviso para fins de teste */}
+              <Card className="bg-yellow-900 border-yellow-600">
                 <CardContent className="p-4">
-                  <div className="flex items-center gap-2 text-blue-200">
+                  <div className="flex items-center gap-2 text-yellow-200">
                     <Check className="h-5 w-5" />
-                    <span className="font-semibold">Status de Pagamento</span>
+                    <span className="font-semibold">Modo de Teste</span>
                   </div>
-                  <p className="text-blue-100 text-sm mt-2">
-                    Selecione uma opção de pagamento acima. O status será registrado no agendamento.
+                  <p className="text-yellow-100 text-sm mt-2">
+                    O pagamento foi desabilitado para fins de teste. O agendamento será confirmado diretamente.
                   </p>
                 </CardContent>
               </Card>
             </div>
           )}
 
-          <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mt-8">
+          <div className="flex fecol sm:flex-row justify-between items-center gap-4 mt-8">
             <Button
               variant="outline"
               onClick={prevStep}
@@ -761,9 +1013,9 @@ export default function BookingFlow({ services, dates, barbers }: BookingFlowPro
                   (currentStep === 1 && !selectedService) ||
                   (currentStep === 2 && !selectedBarber) ||
                   (currentStep === 3 && !selectedDate) ||
-                  (currentStep === 4 && !selectedTime)
+                  (currentStep === 4 && ((!showMinutes && !selectedHour) || (showMinutes && !selectedTime)))
                 }
-                className="bg-[#C1FE72] text-black hover:bg-[#A8E55A] font-semibold w-full sm:w-auto"
+                className="bg-[#C1FE72] text-black hover:bg-[#A8E55A] font-semibold w-full sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Próximo
                 <ArrowRight className="h-4 w-4 ml-2" />
@@ -771,8 +1023,18 @@ export default function BookingFlow({ services, dates, barbers }: BookingFlowPro
             ) : (
               <Button
                 onClick={handlePayment}
-                disabled={isLoading || !customerName || !customerPhone}
-                className="bg-[#C1FE72] text-black hover:bg-[#A8E55A] font-semibold w-full sm:w-auto"
+                disabled={
+                  isLoading || 
+                  !customerName.trim() || 
+                  !customerPhone.trim() || 
+                  validatePhoneNumber(customerPhone) !== "" || 
+                  validateName(customerName) !== "" ||
+                  !selectedService ||
+                  !selectedBarber ||
+                  !selectedDate ||
+                  !selectedTime
+                }
+                className="bg-[#C1FE72] text-black hover:bg-[#A8E55A] font-semibold w-full sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isLoading ? "Processando..." : "Confirmar Agendamento"}
                 <Check className="h-4 w-4 ml-2" />
